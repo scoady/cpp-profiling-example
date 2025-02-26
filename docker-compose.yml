@@ -1,6 +1,8 @@
 version: "3.8"
+
 volumes:
-  cxx-binary-volume:   
+  cxx-binary-volume:
+
 services:
   cpp-app:
     build:
@@ -9,6 +11,9 @@ services:
     container_name: cpp_app
     ports:
       - "8080:8080"
+    volumes:
+      - cxx-binary-volume:/build-output # Ensure the volume is attached
+
   go-bridge:
     build:
       context: ./go-bridge
@@ -18,6 +23,7 @@ services:
       - "8081:8081"
     depends_on:
       - cpp-app
-    # Mount the same named volume at /build-output
     volumes:
-      - cxx-binary-volume:/build-output
+      - cxx-binary-volume:/build-output # Consistent volume path
+    environment:
+      - PPROF_BINARY_PATH=/build-output # Ensure pprof finds the binary

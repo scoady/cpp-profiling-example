@@ -9,11 +9,18 @@
 #include <netinet/in.h> // for sockaddr_in
 #include <arpa/inet.h>  // for INADDR_ANY
 
+// Intentionally leaked memory
+std::vector<int*> leakedMemory;
+
+void SimulateMemoryLeak() {
+    // Allocate 1 MB of memory and never free it (memory leak!)
+    int* leakedChunk = new int[256 * 1024]; // 1 MB (256k * 4 bytes)
+    leakedMemory.push_back(leakedChunk);
+    std::cout << "Leaked 1 MB of memory. Total leaks: " << leakedMemory.size() << " MB\n";
+}
+
 // Naive function that blocks and handles a single connection
-// (again, not production-ready).
 void HandleClient(int clientSock) {
-    // Minimal parsing: we'll only look for GET /debug/pprof/heap
-    // (In reality you'd parse the HTTP properly).
     const int bufferSize = 4096;
     char buffer[bufferSize] = {0};
     ssize_t bytesRead = recv(clientSock, buffer, bufferSize - 1, 0);
@@ -22,29 +29,22 @@ void HandleClient(int clientSock) {
         return;
     }
 
-    // Convert to a C-string just in case.
     buffer[bytesRead] = '\0';
-
-    // Check if it's the path we want:
-    // "GET /debug/pprof/heap"
     std::string request(buffer);
+
     if (request.find("GET /debug/pprof/heap") != std::string::npos) {
+        // Simulate a memory leak on each request
+        SimulateMemoryLeak();
+
         // Grab the heap profile from gperftools
         const char* profileData = GetHeapProfile();
         if (profileData) {
-            // Construct a minimal HTTP response
             std::string response = 
                 "HTTP/1.1 200 OK\r\n"
                 "Content-Type: text/plain\r\n"
                 "Connection: close\r\n\r\n";
-
-            // Append the actual profile data
             response += profileData;
-
-            // Send the response
             send(clientSock, response.c_str(), response.size(), 0);
-
-            // Must free memory allocated by GetHeapProfile()
             delete[] profileData;
         } else {
             std::string errResponse = 
@@ -55,7 +55,6 @@ void HandleClient(int clientSock) {
             send(clientSock, errResponse.c_str(), errResponse.size(), 0);
         }
     } else {
-        // Not the path we want
         std::string notFound = 
             "HTTP/1.1 404 Not Found\r\n"
             "Content-Type: text/plain\r\n"
@@ -68,21 +67,11 @@ void HandleClient(int clientSock) {
 }
 
 int main() {
-    // Start the heap profiler with some prefix (file output is optional)
-    // This also writes .heap files to /tmp, but we won't rely on them directly.
     HeapProfilerStart("/tmp/heap_profile_example");
-
-    // Allocate some memory so we have something to see in the profile
-    std::vector<int> bigVec;
-    bigVec.reserve(10'000'000);
-    for (int i = 0; i < 10'000'000; ++i) {
-        bigVec.push_back(i);
-    }
 
     std::cout << "Memory allocated. Starting naive HTTP server on port 8080.\n";
     std::cout << "Visit http://localhost:8080/debug/pprof/heap to get the profile.\n";
 
-    // Socket setup
     int serverSock = socket(AF_INET, SOCK_STREAM, 0);
     if (serverSock < 0) {
         std::cerr << "Failed to create socket.\n";
@@ -95,7 +84,7 @@ int main() {
     sockaddr_in addr;
     std::memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY; // 0.0.0.0
+    addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(8080);
 
     if (bind(serverSock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
@@ -108,7 +97,6 @@ int main() {
         return 1;
     }
 
-    // Accept loop (single-threaded)
     while (true) {
         sockaddr_in clientAddr;
         socklen_t clientLen = sizeof(clientAddr);
@@ -117,13 +105,10 @@ int main() {
             std::cerr << "Failed to accept client.\n";
             continue;
         }
-        // Handle the request (blocking)
         HandleClient(clientSock);
     }
 
-    // We'll never reach this in the example, but for completeness:
     HeapProfilerStop();
     close(serverSock);
     return 0;
 }
-

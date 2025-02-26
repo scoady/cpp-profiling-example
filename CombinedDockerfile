@@ -1,0 +1,57 @@
+# Stage 1: Build the C++ binary
+FROM ubuntu:22.04 as cpp-builder
+
+RUN apt-get update && apt-get install -y \
+    g++ \
+    libgoogle-perftools-dev \
+    google-perftools \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the C++ source code and build the binary
+COPY cpp-app/heap_profile_server.cpp .
+RUN g++ -std=c++17 heap_profile_server.cpp -o heap_profile_server -ltcmalloc_and_profiler
+
+
+# Stage 2: cpp-app runtime image (Target 1)
+FROM ubuntu:22.04 as cpp-app
+
+RUN apt-get update && apt-get install -y \
+    libgoogle-perftools-dev \
+    google-perftools \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the pre-built C++ binary from the builder stage
+COPY --from=cpp-builder /app/heap_profile_server /app/heap_profile_server
+
+EXPOSE 8080
+CMD ["./heap_profile_server"]
+
+
+# Stage 3: go-bridge app build and runtime (Target 2)
+FROM golang:1.23 as go-bridge
+
+# Install pprof and profilecli
+RUN go install github.com/google/pprof@latest
+RUN curl -fL https://github.com/grafana/pyroscope/releases/download/v1.1.5/profilecli_1.1.5_linux_amd64.tar.gz | tar xvz
+RUN chmod +x profilecli && mv profilecli /go/bin/
+
+WORKDIR /app
+
+# Copy the Go server code
+COPY go-bridge/server.go .
+
+# Copy the C++ binary from the cpp-builder stage
+COPY --from=cpp-builder /app/heap_profile_server /app/heap_profile_server
+
+# Build the Go server
+RUN go mod init example.com/bridge || true
+RUN go mod tidy
+RUN go build -o bridge-server server.go
+
+EXPOSE 8081
+CMD ["./bridge-server"]
+

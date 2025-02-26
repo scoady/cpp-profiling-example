@@ -13,7 +13,7 @@ import (
 )
 
 // The text-based heap profile endpoint from your C++ app
-const cppAppHeapURL = "http://cpp-app:8080/debug/pprof/heap"
+const cppAppHeapURL = "http://localhost:8080/debug/pprof/heap"
 
 // Path to your compiled C++ binary for symbolization
 const cxxBinaryPath = "/build-output/heap_profile_server"
@@ -22,7 +22,7 @@ const cxxBinaryPath = "/build-output/heap_profile_server"
 var tempDir = "/tmp"
 
 // Pyroscope server where we'll upload
-const pyroscopeURL = "http://host.docker.internal:4040"
+const pyroscopeURL = "http://pyroscope:4040"
 
 func main() {
     // 1) Start a background goroutine that profiles every 30s

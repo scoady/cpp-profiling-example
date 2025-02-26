@@ -1,0 +1,29 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpp-app-go-bridge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cpp-go-bridge
+  template:
+    metadata:
+      labels:
+        app: cpp-go-bridge
+    spec:
+      containers:
+      - name: cpp-app
+        image: docker.io/seancoady22/cpp-profiling-demo:1.0.2
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+      - name: go-bridge
+        image: docker.io/seancoady22/go-bridge-cpp-pprof:1.0.2
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8081
+        env:
+        - name: PPROF_BINARY_PATH
+          value: /app
