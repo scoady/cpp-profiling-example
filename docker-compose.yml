@@ -1,0 +1,23 @@
+version: "3.8"
+volumes:
+  cxx-binary-volume:   
+services:
+  cpp-app:
+    build:
+      context: ./cpp-app
+      dockerfile: Dockerfile
+    container_name: cpp_app
+    ports:
+      - "8080:8080"
+  go-bridge:
+    build:
+      context: ./go-bridge
+      dockerfile: Dockerfile
+    container_name: go_bridge
+    ports:
+      - "8081:8081"
+    depends_on:
+      - cpp-app
+    # Mount the same named volume at /build-output
+    volumes:
+      - cxx-binary-volume:/build-output
