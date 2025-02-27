@@ -9,7 +9,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include <opentelemetry/exporters/otlp/otlp_http_exporter.h>
+#include <opentelemetry/exporters/otlp/otlp_grpc_exporter.h>
 #include <opentelemetry/sdk/trace/simple_processor.h>
 #include <opentelemetry/sdk/trace/tracer_provider.h>
 #include <opentelemetry/sdk/trace/tracer_context.h>
@@ -22,7 +22,7 @@ namespace sdktrace = opentelemetry::sdk::trace;
 namespace nostd = opentelemetry::nostd;
 
 void InitOpenTelemetry() {
-    auto exporter = std::make_unique<opentelemetry::exporter::otlp::OtlpHttpExporter>();
+    auto exporter = std::make_unique<opentelemetry::exporter::otlp::OtlpGrpcExporter>();
 
     std::vector<std::unique_ptr<sdktrace::SpanProcessor>> processors;
     processors.emplace_back(
@@ -43,11 +43,13 @@ void InitOpenTelemetry() {
     trace::Provider::SetTracerProvider(provider);
 }
 
-
 nostd::shared_ptr<trace::Tracer> get_tracer() {
     auto provider = trace::Provider::GetTracerProvider();
     return provider->GetTracer("cpp-app", "1.0.0");
 }
+
+// Remainder of the code (HandleClient and main function) remains unchanged.
+
 
 void HandleClient(int clientSock) {
     auto tracer = get_tracer();

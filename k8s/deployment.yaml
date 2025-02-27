@@ -15,12 +15,12 @@ spec:
     spec:
       containers:
       - name: cpp-app
-        image: docker.io/seancoady22/cpp-profiling-demo:1.0.2
+        image: docker.io/seancoady22/cpp-profiling-demo:2.0.1
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
       - name: go-bridge
-        image: docker.io/seancoady22/go-bridge-cpp-pprof:1.0.2
+        image: docker.io/seancoady22/go-bridge-cpp-pprof:2.0.1
         imagePullPolicy: Always
         ports:
         - containerPort: 8081
