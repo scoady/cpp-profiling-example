@@ -5,33 +5,45 @@ FROM alpine:latest AS base
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories \
     && apk add --no-cache \
     build-base \
+    cmake \
     git \
-    autoconf \
-    automake \
-    libtool \
     curl \
-    libcurl \
     curl-dev \
     protobuf-dev \
     grpc-dev \
+    autoconf \
+    automake \
+    libtool \
+    abseil-cpp-dev \
+    opentelemetry-cpp \
     opentelemetry-cpp-dev \
-    abseil-cpp-dev
+    opentelemetry-cpp-exporter-otlp-common \
+    opentelemetry-cpp-exporter-otlp-grpc \
+    opentelemetry-cpp-exporter-otlp-http \
+    opentelemetry-cpp-exporter-zipkin 
+    
 
 # Clone and build gperftools
+WORKDIR /tmp
 RUN git clone https://github.com/gperftools/gperftools.git \
     && cd gperftools \
     && ./autogen.sh \
     && ./configure \
     && make -j$(nproc) \
-    && make install 
+    && make install
 
-# Link libraries manually instead of using ldconfig
-RUN ln -s /usr/local/lib/libtcmalloc_and_profiler.so.4 /usr/lib/libtcmalloc_and_profiler.so.4
-
-# Update the library path environment variable
-ENV LD_LIBRARY_PATH="/usr/local/lib:/usr/lib"
+# Build OpenTelemetry C++ with gRPC support
+#RUN git clone --recurse-submodules https://github.com/open-telemetry/opentelemetry-cpp.git \
+#    && cd opentelemetry-cpp \
+#    && mkdir build && cd build \
+#    && cmake -DBUILD_TESTING=OFF -DWITH_OTLP_GRPC=ON -DWITH_OTLP_HTTP=ON .. \
+#    && make -j$(nproc) \
+#    && make install
 
 WORKDIR /app
+
+# Stage 2: Build the C++ application
+FROM base AS cpp-builder
 
 # Copy the C++ source code
 COPY cpp-app/heap_profile_server.cpp .
@@ -50,16 +62,16 @@ RUN g++ -std=c++17 heap_profile_server.cpp -o heap_profile_server \
     -lcurl \
     -lpthread \
     -labsl_log_internal_check_op \
-    -labsl_log_internal_message \
     -labsl_log_severity \
     -labsl_log_internal_globals \
+    -labsl_log_internal_message \
     -labsl_str_format_internal \
     -labsl_strings \
     -labsl_base \
     -labsl_synchronization \
     -labsl_time
 
-# Stage 2: Runtime image for the C++ app
+# Stage 3: Runtime image for the C++ app
 FROM alpine:latest AS cpp-app
 
 # Add edge/testing repository and install runtime dependencies
@@ -68,23 +80,29 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/reposit
     libcurl \
     libprotobuf \
     grpc \
-    gperftools \
-    opentelemetry-cpp
+    opentelemetry-cpp \
+    opentelemetry-cpp-dev \
+    opentelemetry-cpp-exporter-otlp-common \
+    opentelemetry-cpp-exporter-otlp-grpc \
+    opentelemetry-cpp-exporter-otlp-http \
+    opentelemetry-cpp-exporter-zipkin 
 
 # Copy the pre-built C++ binary from the builder stage
-COPY --from=base /app/heap_profile_server /app/heap_profile_server
+COPY --from=cpp-builder /app/heap_profile_server /app/heap_profile_server
 
 # Copy the required shared libraries
-COPY --from=base /usr/local/lib/libtcmalloc_and_profiler.so.4 /usr/local/lib/
-COPY --from=base /usr/local/lib/libopentelemetry*.so* /usr/local/lib/
+COPY --from=cpp-builder /usr/local/lib/libtcmalloc_and_profiler.so.4 /usr/local/lib/
+COPY --from=cpp-builder /usr/local/lib/libopentelemetry*.so* /usr/local/lib/
 
 # Set the library path
-ENV LD_LIBRARY_PATH="/usr/local/lib:/usr/lib"
+ENV LD_LIBRARY_PATH="/usr/local/lib:/usr/lib:/lib"
 
 WORKDIR /app
 
 EXPOSE 8080
 CMD ["./heap_profile_server"]
+
+
 
 
 # Stage 3: Build and run the Go bridge app
@@ -101,7 +119,7 @@ WORKDIR /app
 COPY go-bridge/server.go .
 
 # Copy the C++ binary from the cpp-builder stage
-COPY --from=base /app/heap_profile_server /app/heap_profile_server
+COPY --from=cpp-builder /app/heap_profile_server /app/heap_profile_server
 
 # Build the Go server
 RUN go mod init example.com/bridge || true
