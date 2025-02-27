@@ -1,37 +1,82 @@
-# Stage 1: Build the C++ binary
-FROM ubuntu:22.04 as cpp-builder
+# Stage 1: Base environment for building
+FROM ubuntu:22.04 as base
 
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install essential build tools and dependencies
 RUN apt-get update && apt-get install -y \
-    g++ \
+    build-essential \
+    autoconf \
+    libtool \
+    pkg-config \
+    cmake \
+    git \
+    libssl-dev \
+    curl \
+    libcurl4-openssl-dev \
+    libgtest-dev \
+    libgmock-dev \
+    libbenchmark-dev \
     libgoogle-perftools-dev \
     google-perftools \
+    protobuf-compiler \
+    libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+RUN mkdir -p /opt/otel-cpp
+
+# Stage 2: Build OpenTelemetry and dependencies using build.sh
+FROM base as otel-builder
+
+# Clone the OpenTelemetry repository
+RUN git clone https://github.com/open-telemetry/opentelemetry-cpp.git /opentelemetry
+
+WORKDIR /opentelemetry/docker
+
+# Build OpenTelemetry using the provided build.sh script
+RUN bash build.sh -b ubuntu -j $(nproc) -g v1.43.2 -o v1.13.0 -t 0.14.1
+
+# Stage 3: Build the C++ application
+FROM base as cpp-builder
+
+# Copy OpenTelemetry built libraries from the otel-builder stage
+COPY --from=otel-builder /opt/otel-cpp /opt/otel-cpp
+
+# Set environment variables for CMake
+ENV CMAKE_PREFIX_PATH=/opt/otel-cpp
+ENV LD_LIBRARY_PATH=/opt/otel-cpp/lib
 
 WORKDIR /app
 
-# Copy the C++ source code and build the binary
+# Copy the C++ source code and CMake configuration
+COPY cpp-app/CMakeLists.txt .
 COPY cpp-app/heap_profile_server.cpp .
-RUN g++ -std=c++17 heap_profile_server.cpp -o heap_profile_server -ltcmalloc_and_profiler
 
-
-# Stage 2: cpp-app runtime image (Target 1)
+# Build the C++ application using CMake
+RUN mkdir -p build && cd build \
+    && cmake .. -DCMAKE_PREFIX_PATH=/opt/otel-cpp \
+    && make -j$(nproc)
+    
+# Stage 4: Runtime image for the C++ app
 FROM ubuntu:22.04 as cpp-app
 
 RUN apt-get update && apt-get install -y \
     libgoogle-perftools-dev \
     google-perftools \
+    libcurl4-openssl-dev \
+    libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copy the pre-built C++ binary from the builder stage
-COPY --from=cpp-builder /app/heap_profile_server /app/heap_profile_server
+COPY --from=cpp-builder /app/build/heap_profile_server /app/heap_profile_server
 
 EXPOSE 8080
 CMD ["./heap_profile_server"]
 
-
-# Stage 3: go-bridge app build and runtime (Target 2)
+# Stage 5: Build and run the Go bridge app
 FROM golang:1.23 as go-bridge
 
 # Install pprof and profilecli
@@ -45,7 +90,7 @@ WORKDIR /app
 COPY go-bridge/server.go .
 
 # Copy the C++ binary from the cpp-builder stage
-COPY --from=cpp-builder /app/heap_profile_server /app/heap_profile_server
+COPY --from=cpp-builder /app/build/heap_profile_server /app/heap_profile_server
 
 # Build the Go server
 RUN go mod init example.com/bridge || true
@@ -54,4 +99,3 @@ RUN go build -o bridge-server server.go
 
 EXPOSE 8081
 CMD ["./bridge-server"]
-
